@@ -421,13 +421,22 @@ function App() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('Feed');
   const [saved, setSaved] = useState({});
+  const [searchQuery, setSearchQuery] = useState('');
   const [filters, setFilters] = useState({ city: 'Bari', budget: '€€', time: '2h', company: 'coppia', aesthetic: 'mediterranean', type: 'luoghi', vibe: 'Coastal mood' });
 
   const route = moodRoutes[selectedMood] || moodRoutes.Romantica;
   const suggested = useMemo(() => {
-    const primary = places.filter((p) => p.mood === selectedMood || p.vibe === selectedVibe);
-    return [...primary, ...places.filter((p) => !primary.includes(p))].slice(0, 5);
-  }, [selectedMood, selectedVibe]);
+    const query = searchQuery.trim().toLowerCase();
+    const cityPool = filters.city === 'Tutte' ? places : places.filter((p) => p.city === filters.city);
+    const ranked = cityPool.filter((p) => {
+      const matchesMoodOrVibe = p.mood === selectedMood || p.vibe === selectedVibe || p.vibe === filters.vibe;
+      const matchesQuery = !query || [p.title, p.city, p.mood, p.vibe, p.description].join(' ').toLowerCase().includes(query);
+      return query ? matchesQuery : matchesMoodOrVibe;
+    });
+    const fallback = cityPool.filter((p) => !ranked.includes(p));
+    const globalFallback = places.filter((p) => !ranked.includes(p) && !fallback.includes(p));
+    return [...ranked, ...fallback, ...globalFallback].slice(0, 8);
+  }, [selectedMood, selectedVibe, filters.city, filters.vibe, searchQuery]);
 
   const toggleSaved = (key) => setSaved((current) => ({ ...current, [key]: !current[key] }));
 
@@ -444,12 +453,21 @@ function App() {
           route={route}
           suggested={suggested}
         />
-        <MoodSelector selectedMood={selectedMood} setSelectedMood={setSelectedMood} />
-        <VibeSelector selectedVibe={selectedVibe} setSelectedVibe={setSelectedVibe} />
+        <DiscoveryBar
+          selectedMood={selectedMood}
+          setSelectedMood={setSelectedMood}
+          selectedVibe={selectedVibe}
+          setSelectedVibe={setSelectedVibe}
+          filters={filters}
+          setFilters={setFilters}
+          searchQuery={searchQuery}
+          setSearchQuery={setSearchQuery}
+          resultCount={suggested.length}
+        />
         <CurrentMatch selectedMood={selectedMood} selectedVibe={selectedVibe} route={route} />
         <TabDock activeTab={activeTab} setActiveTab={setActiveTab} />
         <SuggestedPlaces places={suggested} saved={saved} toggleSaved={toggleSaved} />
-        <Feed active={activeTab === 'Feed'} saved={saved} toggleSaved={toggleSaved} />
+        <Feed active={activeTab === 'Feed'} places={suggested} saved={saved} toggleSaved={toggleSaved} />
         <Community active={activeTab === 'Community'} />
         <Creators />
         <Events active={activeTab === 'Eventi'} saved={saved} toggleSaved={toggleSaved} />
@@ -626,6 +644,65 @@ function VibeSelector({ selectedVibe, setSelectedVibe }) {
   );
 }
 
+function DiscoveryBar({ selectedMood, setSelectedMood, selectedVibe, setSelectedVibe, filters, setFilters, searchQuery, setSearchQuery, resultCount }) {
+  const cities = ['Bari', 'Roma', 'Milano', 'Firenze', 'Torino', 'Napoli', 'Tutte'];
+  const compactVibes = ['Coastal mood', 'Dolce vita', 'Food market', 'Golden hour walk', 'Dark academia', 'Quiet luxury'];
+
+  const updateVibe = (vibe) => {
+    setSelectedVibe(vibe);
+    setFilters({ ...filters, vibe });
+  };
+
+  return (
+    <section className="section discovery-hub" id="mood">
+      <div className="discovery-panel">
+        <div className="discovery-heading">
+          <div>
+            <span className="section-kicker">Discovery studio</span>
+            <h2>Trova esperienze senza perderti tra mille sezioni</h2>
+          </div>
+          <div className="result-summary">
+            <strong>{resultCount}</strong>
+            <span>risultati coerenti</span>
+          </div>
+        </div>
+
+        <label className="search-field">
+          <Search size={18} />
+          <input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Cerca luogo, vibe o quartiere" />
+        </label>
+
+        <div className="control-grid">
+          <div>
+            <span>Citta</span>
+            <div className="filter-row">
+              {cities.map((city) => <button key={city} className={filters.city === city ? 'active' : ''} onClick={() => setFilters({ ...filters, city })}>{city}</button>)}
+            </div>
+          </div>
+          <div>
+            <span>Mood</span>
+            <div className="filter-row">
+              {moodOptions.slice(0, 8).map((mood) => <button key={mood} className={selectedMood === mood ? 'active' : ''} onClick={() => setSelectedMood(mood)}>{moodIcon(mood)}{mood}</button>)}
+            </div>
+          </div>
+          <div>
+            <span>Vibe</span>
+            <div className="filter-row">
+              {compactVibes.map((vibe) => <button key={vibe} className={selectedVibe === vibe ? 'active' : ''} onClick={() => updateVibe(vibe)}>{vibe}</button>)}
+            </div>
+          </div>
+          <div>
+            <span>Contesto</span>
+            <div className="filter-row">
+              {['solo', 'coppia', 'amici', 'gruppo'].map((company) => <button key={company} className={filters.company === company ? 'active' : ''} onClick={() => setFilters({ ...filters, company })}>{company}</button>)}
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function CurrentMatch({ selectedMood, selectedVibe, route }) {
   return (
     <section className="section" id="current-match">
@@ -703,12 +780,12 @@ function PlaceCard({ place, saved, onSave }) {
   );
 }
 
-function Feed({ active, saved, toggleSaved }) {
+function Feed({ active, places: feedPlaces, saved, toggleSaved }) {
   return (
     <section className={`section ${active ? 'section-highlight' : ''}`} id="feed">
       <SectionIntro title="Feed ispirazionale" text="Scopri luoghi, storie e micro-itinerari come in una moodboard viva della citta." />
       <div className="masonry">
-        {places.map((place, index) => (
+        {feedPlaces.map((place, index) => (
           <article className={`feed-card size-${(index % 3) + 1}`} key={place.title}>
             <img src={place.img} alt={place.title} />
             <button className={saved[`feed-${place.title}`] ? 'save-bubble saved' : 'save-bubble'} onClick={() => toggleSaved(`feed-${place.title}`)} aria-label="Salva dal feed">
